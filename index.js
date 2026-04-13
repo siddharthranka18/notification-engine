@@ -2,6 +2,8 @@ const express=require('express');
 const mongoose=require('mongoose');
 const dotenv=require('dotenv');
 dotenv.config();
+console.log('Redis URL:', process.env.UPSTASH_REDIS_URL);
+require('./src/workers/notificationWorker');
 const app = express();
 app.use(express.json());
 const notificationRoutes=require('./src/routes/notificationRoutes');

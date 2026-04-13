@@ -1,6 +1,6 @@
 const express=require('express');
 const router = express.Router();
-const notificationQueue=require('../queues/notificationQueue');
+const notificationQueue=require('../queues/notificationQueue');//enrtry point for redis 
 router.post('/send',async(req,res)=>{
     const {recipient,message,type}=req.body;
     await notificationQueue.add('send-notification',{

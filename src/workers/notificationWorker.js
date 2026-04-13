@@ -1,16 +1,28 @@
 const {Worker} = require('bullmq');
 require('dotenv').config();
+const {sendEmail}=require('../services/emailServices');
 const  connection ={
     url:process.env.UPSTASH_REDIS_URL
 };
 const worker = new Worker('notifications',async(job)=>{
     console.log('processing job:',job.id);
-    console.log('job data:',job.data);
-console.log(`notification sent to ${job.data.recipient}`);
-},{connection});
-worker.on('completed',(job)=>{
-    console.log(`job ${job.id} completed successfully`);
-})
+const  {recipient,message,type}=job.data;
+if(type=='email'){
+    await sendEmail(recipient,message);
+}
+},{
+    connection,
+attempts:3,
+backoff:{
+    type:'exponential',
+    delay:1000
+}
+});
+
+worker.on('completed', (job) => {
+  console.log(`Job ${job.id} completed successfully`);
+});
+
 
 worker.on('failed',(job,err)=>{
     console.log(`${job.id} failed:`,err.message);
