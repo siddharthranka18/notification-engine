@@ -7,7 +7,6 @@ const transporter=nodemailer.createTransport({
         pass:process.env.EMAIL_PASS
     }
 });
-
 const sendEmail=async(recipient,message)=>{
     const mailOptions={
         from:process.env.EMAIL_USER,

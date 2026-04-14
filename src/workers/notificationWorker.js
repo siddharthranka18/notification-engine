@@ -1,6 +1,7 @@
 const {Worker} = require('bullmq');
 require('dotenv').config();
 const {sendEmail}=require('../services/emailServices');
+const {sendSMS}=require('../services/smsService');
 const  connection ={
     url:process.env.UPSTASH_REDIS_URL
 };
@@ -9,9 +10,11 @@ const worker = new Worker('notifications',async(job)=>{
 const  {recipient,message,type}=job.data;
 if(type=='email'){
     await sendEmail(recipient,message);
+}else if(type=='sms'){
+    await sendSMS(recipient,message);
 }
 },{
-    connection,
+connection,
 attempts:3,
 backoff:{
     type:'exponential',
