@@ -1,16 +1,19 @@
-Notification Engine
-A scalable, asynchronous notification service built with Node.js that processes email and SMS notifications using a robust queue-worker architecture. This system is designed to ensure reliable delivery, handle high-traffic spikes, and provide real-time status updates without blocking the main application thread.
+🚀 Notification Engine
+A Scalable & Asynchronous Messaging Microservice
+The Notification Engine is a high-performance service built with Node.js. It leverages a robust queue-worker architecture to process Email and SMS notifications background-style.
 
-🚀 Problem Statement
-Traditional applications often send notifications synchronously, which leads to several critical bottlenecks:
+Goal: Ensure 100% delivery reliability, handle massive traffic spikes, and provide real-time status updates without ever blocking the main execution thread.
 
-Slow response times: Users wait for the external provider (Email/SMS) to respond.
+🚩 The Problem
+Traditional applications often send notifications synchronously, creating several critical bottlenecks:
 
-Poor scalability: High traffic can overwhelm the server and the external service.
+⏳ Slow Response Times: Users wait while the server talks to external providers.
 
-Data loss: If an external service is down, the notification is often lost forever.
+📉 Poor Scalability: High traffic can crash the API or hit provider limits.
 
-This project solves these issues by decoupling the request from the execution using an asynchronous, queue-based architecture.
+❌ Data Loss: If an external service is down, the notification is gone.
+
+The Solution: This project decouples requests from execution using an asynchronous, queue-based flow.
 
 🛠️ Tech Stack
 Runtime: Node.js
