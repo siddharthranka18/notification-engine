@@ -2,6 +2,7 @@ const { Worker } = require('bullmq');
 require('dotenv').config();
 const { sendEmail } = require('../services/emailServices');
 const { sendSMS } = require('../services/smsService');
+const Notification = require('../models/Notifications');
 
 const connection = {
   url: process.env.UPSTASH_REDIS_URL
@@ -10,21 +11,34 @@ const connection = {
 module.exports = (io) => {
   const worker = new Worker('notifications', async (job) => {
     console.log('processing job:', job.id);
-    const { recipient, message, type } = job.data;
+    const { recipient, message, type, notificationId } = job.data;
 
-    if (type === 'email') {
-      await sendEmail(recipient, message);
-    } else if (type === 'sms') {
-      await sendSMS(recipient, message);
+    try {
+      if (type === 'email') {
+        await sendEmail(recipient, message);
+      } else if (type === 'sms') {
+        await sendSMS(recipient, message);
+      }
+
+      await Notification.findByIdAndUpdate(notificationId, {
+        status: 'sent'
+      });
+
+      io.emit('notification', {
+        status: 'delivered',
+        type,
+        recipient,
+        message
+      });
+
+    } catch (err) {
+      await Notification.findByIdAndUpdate(notificationId, {
+        status: 'failed',
+        error: err.message,
+        retryCount: job.attemptsMade
+      });
+      throw err;
     }
- 
-    //io.emit->pushed data to all conneted browsers instantly
-    io.emit('notification', { //this sends to frontend 
-      status: 'delivered',
-      type,
-      recipient,
-      message
-    });
 
   }, {
     connection,
