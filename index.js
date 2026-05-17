@@ -7,6 +7,10 @@ const { Server } = require('socket.io');
 dotenv.config();
 console.log('Redis URL:', process.env.UPSTASH_REDIS_URL);
 
+process.on('unhandledRejection', (reason) => {
+  console.log('Unhandled Rejection:', reason);
+});
+
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer);

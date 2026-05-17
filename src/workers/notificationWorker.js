@@ -51,5 +51,9 @@ module.exports = (io) => {
     console.log(`${job.id} failed:`, err.message);
   });
 
+  worker.on('error', (err) => {
+    console.log('Worker error:', err.message);
+  });
+
   return worker;
 };
