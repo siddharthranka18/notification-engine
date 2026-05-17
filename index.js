@@ -13,13 +13,15 @@ const io = new Server(httpServer);
 
 app.use(express.json());
 
-require('./src/workers/notificationWorker')(io); //passing socket instance to worker 
-
 const notificationRoutes = require('./src/routes/notificationRoutes');
 app.use('/api/notifications', notificationRoutes);
 
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('mongoDB connected'))
+  .then(() => {
+    console.log('mongoDB connected');
+    require('./src/workers/notificationWorker')(io);
+    console.log('Worker started');
+  })
   .catch((err) => console.log("mongoDB error :", err));
 
 io.on('connection', (socket) => {
