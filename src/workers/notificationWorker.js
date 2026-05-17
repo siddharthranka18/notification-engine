@@ -1,12 +1,14 @@
 const { Worker } = require('bullmq');
+const Redis = require('ioredis');
 const { sendEmail } = require('../services/emailServices');
 const { sendSMS } = require('../services/smsService');
 const Notification = require('../models/Notifications');
 
 module.exports = (io) => {
-  const connection = {
-    url: process.env.UPSTASH_REDIS_URL
-  };
+  const connection = new Redis(process.env.UPSTASH_REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
 
   console.log('Worker connecting to Redis:', process.env.UPSTASH_REDIS_URL);
 
