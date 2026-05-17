@@ -10,31 +10,32 @@ module.exports = (io) => {
     enableReadyCheck: false,
   });
 
-  console.log('Worker connecting to Redis:', process.env.UPSTASH_REDIS_URL);
-
   const worker = new Worker('notifications', async (job) => {
     console.log('processing job:', job.id);
+    console.log('job data:', JSON.stringify(job.data));
+    
     const { recipient, message, type, notificationId } = job.data;
 
     try {
+      console.log('sending', type, 'to', recipient);
+      
       if (type === 'email') {
         await sendEmail(recipient, message);
+        console.log('email sent successfully');
       } else if (type === 'sms') {
         await sendSMS(recipient, message);
+        console.log('sms sent successfully');
       }
 
-      await Notification.findByIdAndUpdate(notificationId, {
-        status: 'sent'
-      });
+      console.log('updating notification status');
+      await Notification.findByIdAndUpdate(notificationId, { status: 'sent' });
+      console.log('status updated');
 
-      io.emit('notification', {
-        status: 'delivered',
-        type,
-        recipient,
-        message
-      });
+      io.emit('notification', { status: 'delivered', type, recipient, message });
 
     } catch (err) {
+      console.log('ERROR in job:', err.message);
+      console.log('ERROR stack:', err.stack);
       await Notification.findByIdAndUpdate(notificationId, {
         status: 'failed',
         error: err.message,
@@ -50,7 +51,7 @@ module.exports = (io) => {
   });
 
   worker.on('failed', (job, err) => {
-    console.log(`${job.id} failed:`, err.message);
+    console.log(`Job ${job.id} failed:`, err.message);
   });
 
   worker.on('error', (err) => {
