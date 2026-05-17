@@ -1,14 +1,15 @@
 const { Worker } = require('bullmq');
-require('dotenv').config();
 const { sendEmail } = require('../services/emailServices');
 const { sendSMS } = require('../services/smsService');
 const Notification = require('../models/Notifications');
 
-const connection = {
-  url: process.env.UPSTASH_REDIS_URL
-};
-
 module.exports = (io) => {
+  const connection = {
+    url: process.env.UPSTASH_REDIS_URL
+  };
+
+  console.log('Worker connecting to Redis:', process.env.UPSTASH_REDIS_URL);
+
   const worker = new Worker('notifications', async (job) => {
     console.log('processing job:', job.id);
     const { recipient, message, type, notificationId } = job.data;
@@ -40,14 +41,7 @@ module.exports = (io) => {
       throw err;
     }
 
-  }, {
-    connection,
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 1000
-    }
-  });
+  }, { connection });
 
   worker.on('completed', (job) => {
     console.log(`Job ${job.id} completed successfully`);
