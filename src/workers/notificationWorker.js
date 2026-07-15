@@ -31,17 +31,43 @@ module.exports = (io) => {
       await Notification.findByIdAndUpdate(notificationId, { status: 'sent' });
       console.log('status updated');
 
+      console.log('Emitting delivered event, connected clients:', io.engine.clientsCount);
       io.emit('notification', { status: 'delivered', type, recipient, message });
+      console.log('Delivered emit done');
 
     } catch (err) {
       console.log('ERROR in job:', err.message);
       console.log('ERROR stack:', err.stack);
-      await Notification.findByIdAndUpdate(notificationId, {
-        status: 'failed',
-        error: err.message,
-        retryCount: job.attemptsMade
-      });
-      throw err;
+
+      // Detect permanent errors that should NOT be retried
+      const isPermanentError = 
+        err.message?.includes('unverified') ||       // Twilio unverified number
+        err.message?.includes('Invalid phone') ||    // bad phone format
+        err.message?.includes('not a valid email');  // bad email format
+
+      const isLastAttempt = job.attemptsMade >= job.opts.attempts - 1;
+
+      if (isPermanentError || isLastAttempt) {
+        // Update MongoDB only when permanently failing (not on intermediate retries)
+        await Notification.findByIdAndUpdate(notificationId, {
+          status: 'failed',
+          error: err.message,
+          retryCount: job.attemptsMade
+        });
+
+        // Emit failure to live feed
+        console.log('Emitting failed event, connected clients:', io.engine.clientsCount);
+        io.emit('notification', { status: 'failed', type, recipient, message, error: err.message });
+        console.log('Failed emit done');
+      }
+
+      if (isPermanentError) {
+        // Don't re-throw — BullMQ won't retry this job
+        console.log('Permanent error detected — skipping retries for job:', job.id);
+        return;
+      }
+
+      throw err; // re-throw so BullMQ retries with exponential backoff
     }
 
   }, { connection, concurrency: 10 });

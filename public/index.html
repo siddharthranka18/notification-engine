@@ -28,10 +28,14 @@
     socket.on('notification', (data) => { //to listen io.emit
       const div = document.createElement('div');
       div.className = 'notification';
+      const isFailed = data.status === 'failed';
+      div.style.borderLeftColor = isFailed ? '#e53935' : '#4CAF50';
       div.innerHTML = `
+        <strong>Status:</strong> ${isFailed ? '❌ Failed' : '✅ Delivered'}<br>
         <strong>Type:</strong> ${data.type}<br>
         <strong>Recipient:</strong> ${data.recipient}<br>
         <strong>Message:</strong> ${data.message}<br>
+        ${isFailed ? `<strong style="color:#e53935">Error:</strong> ${data.error}<br>` : ''}
         <span class="timestamp">${new Date().toLocaleTimeString()}</span>
       `;
       document.getElementById('notifications').prepend(div);
