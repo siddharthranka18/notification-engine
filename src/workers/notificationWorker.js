@@ -44,7 +44,7 @@ module.exports = (io) => {
       throw err;
     }
 
-  }, { connection });
+  }, { connection, concurrency: 10 });
 
   worker.on('completed', (job) => {
     console.log(`Job ${job.id} completed successfully`);
