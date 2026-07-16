@@ -9,7 +9,9 @@
 
 # 📬 Notification Engine
 
-A **production-ready, queue-driven notification microservice** built with Node.js that delivers **email** and **SMS** notifications asynchronously via BullMQ. Features real-time delivery tracking through WebSockets, automatic retry with exponential backoff, and a live dashboard for monitoring notification events.
+A **production-ready, queue-driven notification microservice** built with Node.js that delivers **email** and **SMS** notifications asynchronously via BullMQ. Features real-time delivery tracking through WebSockets, automatic retry with exponential backoff, permanent error detection, and a live dashboard for monitoring notification events.
+
+> **Architecture:** HTTP server, BullMQ worker, and Socket.IO all run in a **single Node.js process**. The worker starts only after MongoDB connects successfully.
 
 ---
 
@@ -20,11 +22,13 @@ A **production-ready, queue-driven notification microservice** built with Node.j
 | 📨 **Email Notifications** | Send transactional emails via Gmail SMTP using Nodemailer |
 | 📱 **SMS Notifications** | Send text messages via Twilio's programmable SMS API |
 | ⚡ **Async Job Queue** | BullMQ-powered queue backed by Upstash Redis for reliable, non-blocking delivery |
-| 🔄 **Auto-Retry** | Failed jobs automatically retry up to 3 times with exponential backoff (1s, 2s, 4s) |
-| 🔴 **Real-Time Updates** | Socket.IO broadcasts live delivery events to connected clients |
-| 📊 **Live Dashboard** | Built-in web-based notification feed at the root URL |
+| 🔄 **Auto-Retry** | Failed jobs automatically retry up to 5 times with exponential backoff (2s → 4s → 8s → 16s → 32s) |
+| 🛑 **Permanent Error Detection** | Skips retries for unrecoverable errors (unverified Twilio numbers, invalid phone/email) |
+| 🔴 **Real-Time Updates** | Socket.IO broadcasts live delivery and failure events to connected clients |
+| 📊 **Live Dashboard** | Built-in web-based feed showing ✅ Delivered / ❌ Failed status with error details |
 | 🗄️ **Persistent History** | All notifications logged to MongoDB with status tracking (`pending` → `sent` / `failed`) |
 | 📜 **Notification History API** | Query past notifications sorted by most recent |
+| ✅ **Input Validation** | API returns `400` for missing or invalid `recipient`, `message`, or `type` fields |
 
 ---
 
@@ -59,11 +63,14 @@ A **production-ready, queue-driven notification microservice** built with Node.j
 ### Request Flow
 
 1. **Client** sends a `POST /api/notifications/send` request with recipient, message, and type
-2. **Express** saves the notification to MongoDB with `pending` status
+2. **Express** validates input and saves the notification to MongoDB with `pending` status
 3. **BullMQ** enqueues the job to the `notifications` queue via Upstash Redis
-4. **Worker** picks up the job and dispatches it to the appropriate service (Email or SMS)
-5. On **success**: MongoDB status updated to `sent`, Socket.IO emits a real-time event
-6. On **failure**: MongoDB status updated to `failed` with error details, job retries automatically
+4. **API responds immediately** with `{ success: true }` — this means **queued**, not delivered
+5. **Worker** (starts only after MongoDB connects) picks up the job and dispatches to Email or SMS
+6. On **success**: MongoDB status updated to `sent`, Socket.IO emits `{ status: "delivered" }`
+7. On **transient failure**: job retries with exponential backoff; status stays `pending` until the final attempt
+8. On **permanent failure** (bad phone/email, unverified Twilio number): immediately marked `failed`, Socket.IO emits `{ status: "failed" }`
+9. On **final retry failure**: MongoDB status updated to `failed` with error details, Socket.IO emits failure event
 
 ---
 
@@ -171,13 +178,23 @@ Content-Type: application/json
 | `message` | `string` | ✅ | Notification content |
 | `type` | `string` | ✅ | `"email"` or `"sms"` |
 
-**Response:**
+**Success Response (HTTP 200):**
 
 ```json
 {
   "success": true,
   "message": "Notification queued successfully",
   "id": "665f1a2b3c4d5e6f7a8b9c0d"
+}
+```
+
+> **Note:** This response confirms the notification was **queued**, not delivered. Check `GET /history` or the live dashboard for actual delivery status.
+
+**Validation Error (HTTP 400):**
+
+```json
+{
+  "error": "recipient, message, and type (email|sms) are required"
 }
 ```
 
@@ -201,9 +218,25 @@ GET /api/notifications/history
     "status": "sent",
     "retryCount": 0,
     "createdAt": "2025-06-04T10:30:00.000Z"
+  },
+  {
+    "_id": "665f1a2b3c4d5e6f7a8b9c0e",
+    "recipient": "+91XXXXXXXXXX",
+    "message": "Test SMS",
+    "type": "sms",
+    "status": "failed",
+    "retryCount": 4,
+    "error": "The number +91XXXXXXXXXX is unverified...",
+    "createdAt": "2025-06-04T10:31:00.000Z"
   }
 ]
 ```
+
+| `status` | Meaning |
+|---|---|
+| `pending` | Queued or retrying |
+| `sent` | Delivered successfully |
+| `failed` | Permanently failed after all retries or a permanent error |
 
 ---
 
@@ -216,9 +249,17 @@ const socket = io("http://localhost:3000");
 
 socket.on("notification", (data) => {
   console.log(data);
-  // { status: "delivered", type: "email", recipient: "user@example.com", message: "..." }
+  // Success: { status: "delivered", type: "email", recipient: "user@example.com", message: "..." }
+  // Failure: { status: "failed", type: "sms", recipient: "+91...", message: "...", error: "..." }
 });
 ```
+
+| `status` | When emitted |
+|---|---|
+| `delivered` | Worker successfully sent the notification |
+| `failed` | Permanent error or all retry attempts exhausted |
+
+> Events are emitted in real time only — the dashboard does not replay past notifications on connect.
 
 ---
 
@@ -243,25 +284,49 @@ The BullMQ worker is configured with automatic retry on failure:
 
 | Parameter | Value | Description |
 |---|---|---|
-| `attempts` | `3` | Maximum retry attempts per job |
+| `attempts` | `5` | Maximum retry attempts per job |
 | `backoff.type` | `exponential` | Backoff strategy |
-| `backoff.delay` | `1000ms` | Base delay (doubles each retry: 1s → 2s → 4s) |
+| `backoff.delay` | `2000ms` | Base delay (doubles each retry: 2s → 4s → 8s → 16s → 32s) |
+| `concurrency` | `10` | Worker processes up to 10 jobs in parallel |
+| `removeOnComplete` | `100` | Keeps last 100 completed jobs in Redis |
+| `removeOnFail` | `200` | Keeps last 200 failed jobs in Redis for inspection |
 
-- **On success**: Notification status is updated to `sent` in MongoDB
-- **On failure**: Status is updated to `failed`, error message and `retryCount` are persisted
+### Failure behavior
+
+- **On success**: Notification status updated to `sent`, live feed emits `delivered`
+- **On transient failure** (network timeout, SMTP error): job retries; MongoDB status stays `pending` until the final attempt
+- **On permanent failure** (unverified Twilio number, invalid phone/email): immediately marked `failed`, no retries, live feed emits `failed`
+- **On final retry failure**: status updated to `failed` with `error` message and `retryCount`, live feed emits `failed`
+
+### Permanent errors (no retry)
+
+| Error pattern | Example |
+|---|---|
+| `unverified` | Twilio trial account sending to unverified number |
+| `Invalid phone` | Malformed phone number |
+| `not a valid email` | Malformed email address |
 
 ---
 
 ## 🌐 Live Dashboard
 
-The built-in dashboard at `http://localhost:3000` provides a real-time feed of all dispatched notifications. It connects via Socket.IO and displays:
+The built-in dashboard at `http://localhost:3000` provides a real-time feed of dispatched notifications. It connects via Socket.IO and displays:
 
-- Notification type (Email / SMS)
-- Recipient
-- Message content
-- Timestamp
+- **Delivery status** — ✅ Delivered (green) or ❌ Failed (red)
+- **Notification type** — Email or SMS
+- **Recipient**
+- **Message content**
+- **Error message** — shown in red when delivery fails
+- **Timestamp**
 
-No setup required — just open the root URL after starting the server.
+### Usage
+
+1. Start the server with `node index.js`
+2. Open `http://localhost:3000` in your browser
+3. Wait for **"Connected — waiting for notifications"**
+4. Send a notification via Postman or API — the event appears after the worker completes
+
+> The dashboard only shows **new events in real time**. Open it **before** sending notifications to catch all events. Postman does not receive Socket.IO events.
 
 ---
 
